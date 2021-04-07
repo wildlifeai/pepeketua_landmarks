@@ -1,5 +1,5 @@
-import keras
 import tensorflow as tf
+import tensorflow.keras as keras
 import numpy as np
 
 class LocalizationPointAccuracy(keras.metrics.Metric):
@@ -30,7 +30,7 @@ class LocalizationPointAccuracy(keras.metrics.Metric):
 		y_true = tf.cast(y_true, tf.float32)
 		y_pred = tf.cast(y_pred, tf.float32)
 		diffs = tf.square(tf.subtract(y_true, y_pred))
-		diffs = tf.reduce_sum(tf.reshape(diffs, (tf.shape(diffs)[0], int(diffs.shape[1] / 2), 2)), axis = 2)
+		diffs = tf.reduce_sum(tf.reshape(diffs, (tf.shape(diffs)[0], tf.cast(tf.shape(diffs)[1] / 2, tf.int32), 2)), axis = 2)
 		diffs = tf.sqrt(diffs)
 		outside_points = diffs > self.point_radius
 		outside_diffs = diffs[outside_points]
@@ -42,10 +42,11 @@ class LocalizationPointAccuracy(keras.metrics.Metric):
 		if self.accuracy:
 			return 1 - self.point_outside / self.all_points
 
+		if self.point_outside == 0:
+			return 0.0
 		return self.total_outside_distance / self.point_outside
 
 	def reset_states(self):
 		self.point_outside.assign(0)
 		self.all_points.assign(0)
 		self.total_outside_distance.assign(0)
-

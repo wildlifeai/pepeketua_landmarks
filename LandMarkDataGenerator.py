@@ -142,7 +142,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         points = points[images_too_augmentated == 0]
 
         if len(points) == 0:
-            return images, np.array([])
+            return self.__getitem__(index)
 
         # Creating final x,y label pairs
         points_x = self._keypoint_x_vectorization(points[:])
@@ -170,7 +170,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
                         shear = self.shear
                         )
                     ])
-
+        self.image_gen.on_epoch_end()
 
 
 
