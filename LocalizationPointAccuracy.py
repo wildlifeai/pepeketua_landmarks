@@ -14,11 +14,11 @@ class LocalizationPointAccuracy(keras.metrics.Metric):
 
 	radius - the radius from the ground true points
 	"""
-	LANDMARK_ACCURACY = 'localization_point_accuracy'
-	LANDMARK_OUTSIDE_AVERAGE_DISTANCE = 'localization_outside_radius_distance'
+	LANDMARK_ACCURACY_FORMAT = 'localization_point_accuracy_radius_{0}'
+	LANDMARK_OUTSIDE_AVERAGE_DISTANCE_FORMAT = 'localization_outside_radius_{0}_distance'
 	def __init__(self, name = None, accuracy = True, radius = 5, **kwargs):
 		if name == None:
-			name = self.LANDMARK_ACCURACY if accuracy else self.LANDMARK_OUTSIDE_AVERAGE_DISTANCE
+			name = self.LANDMARK_ACCURACY_FORMAT.format(radius) if accuracy else self.LANDMARK_OUTSIDE_AVERAGE_DISTANCE_FORMAT.format(radius)
 		super(LocalizationPointAccuracy, self).__init__(name = name, **kwargs)
 		self.point_outside = self.add_weight(name = 'point_out', initializer = 'zeros')
 		self.all_points = self.add_weight(name = 'all_points', initializer = 'zeros')
@@ -30,7 +30,10 @@ class LocalizationPointAccuracy(keras.metrics.Metric):
 		y_true = tf.cast(y_true, tf.float32)
 		y_pred = tf.cast(y_pred, tf.float32)
 		diffs = tf.square(tf.subtract(y_true, y_pred))
-		diffs = tf.reduce_sum(tf.reshape(diffs, (tf.shape(diffs)[0], tf.cast(tf.shape(diffs)[1] / 2, tf.int32), 2)), axis = 2)
+		if len(tf.shape(diffs)) == 1:
+			diffs = tf.reduce_sum(tf.reshape(diffs, (1, tf.cast(len(diffs) / 2, tf.int32), 2)), axis = 2)
+		else:
+			diffs = tf.reduce_sum(tf.reshape(diffs, (tf.shape(diffs)[0], tf.cast(tf.shape(diffs)[1] / 2, tf.int32), 2)), axis = 2)
 		diffs = tf.sqrt(diffs)
 		outside_points = diffs > self.point_radius
 		outside_diffs = diffs[outside_points]

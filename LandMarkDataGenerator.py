@@ -25,7 +25,9 @@ class LandMarkDataGenerator(keras.utils.Sequence):
                         rescale = 1/255,
                         resize_points = False,
                         height_first = True,
-                        training = False
+                        training = False,
+                        normalize_y = False,
+                        preprocessing_function = None
                         ):
         """
         dataframe: dataframe holding the information 
@@ -39,6 +41,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         color_mode: color mode of the image as used by ImageDateGenerator by keras
 
         target_size: Tuple of ints, indicating to what size images will be resized, default (256, 256)
+                     where the size tuple is (height, width)
 
         batch_size: Int, Batch size to use, default 32
 
@@ -51,6 +54,12 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         training: Determins if to return new label values or only images, used for training or evaluating model 
                   should be True for training, validating and test but should be False for prediction. 
                   default False
+
+        normalize_y: Whether or not to devide point coordinates  by size of image
+                     making point coordinates between 0-1, used when output layer's
+                     activation is tanh etc.
+
+        preprocessing_function: Preprocessing function to be past onto ImageDataGenerator
         
         Imgaug parameters for augmentation for more information
         visit imgaug documantations, all defualt values will
@@ -85,17 +94,21 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         self.training = training
         self.resize_points = resize_points
         self.height_first = height_first
+        self.normalize_y = normalize_y
+        self.preprocessing_function = preprocessing_function
 
         # Image generator
-        self.image_datagen = keras.preprocessing.image.ImageDataGenerator(rescale = rescale)
+        self.image_datagen = keras.preprocessing.image.ImageDataGenerator(rescale = rescale,
+        																preprocessing_function = preprocessing_function)
         # Vectorization function to create Keypoint objects for augmentation
         self._keypoint_vectorization = np.vectorize(lambda x,y: Keypoint(x = x, y = y))
 
         # Vectorization function to create Keypoint objects for augmentation with resizing
-        # image_size is (width, height)
-        self._keypoint_vectorization_resize = np.vectorize(lambda x, y, im_height, im_width: Keypoint(x = x, y = y).project((im_width, im_height), self.target_size))
-        self._keypoint_x_vectorization = np.vectorize(lambda x: x.x)
-        self._keypoint_y_vectorization = np.vectorize(lambda y: y.y)
+        # image_size is (height, width)
+        self._keypoint_vectorization_resize = np.vectorize(lambda x, y, im_height, im_width: Keypoint(x = x, y = y).project((im_height, im_width), self.target_size))
+        self._keypoint_vectorization_resize_back = np.vectorize(lambda x, y, im_height, im_width: Keypoint(x = x, y = y).project(self.target_size, (im_height, im_width)))
+        self._keypoint_x_vectorization = np.vectorize(lambda x: (x.x / self.target_size[0]) if self.normalize_y else x.x)
+        self._keypoint_y_vectorization = np.vectorize(lambda y: (y.y / self.target_size[1]) if self.normalize_y else y.y)
         # Vectorization function to check if points are inside the image (can get out if augmentation is too aggresive)
         self._keypoint_is_out_vectorization = np.vectorize(lambda p, x_max, y_max: p.x > x_max or p.y > y_max)
 
@@ -116,17 +129,50 @@ class LandMarkDataGenerator(keras.utils.Sequence):
     def __getitem__(self, index):
         # Generate one batch of data
         images, labels = self.image_gen.next()
+
+        if self.training:
+            labels = self.create_training_labels(images, labels)
+            if labels is None or len(labels) < self.batch_size:
+                labels = self.__getitem__(index)
+            return images, labels
+        return images
+
+    def create_final_labels(self, labels):
+        # Resizes labels to original image size
+        labels, image_size = self._fix_labels_get_image_size(labels)
+        image_height, image_width = self._get_image_sizes_for_vectorizations(labels, image_size)
+        kps = self._keypoint_vectorization_resize_back(labels[:, :, 0], labels[:, :, 1], image_height, image_width)
+        points = np.array(kps)
+
+        # Creating final x,y label pairs
+        points_x = self._keypoint_x_vectorization(points[:])
+        points_y = self._keypoint_y_vectorization(points[:])
+        labels = np.reshape(np.dstack([points_x, points_y]), (labels.shape[0], labels.shape[1] * 2))
+
+        return labels
+
+    def _fix_labels_get_image_size(self, labels):
         labels = np.array(labels)
         labels = np.reshape(labels, (labels.shape[0], int(labels.shape[1] / 2), 2))
+        image_size = labels[:,-1]
+        labels = labels[:,:-1]
+        return labels, image_size
 
+    def _get_image_sizes_for_vectorizations(self, labels, image_size):
+        height_index = 0 if self.height_first else 1
+        width_index = 1 - height_index
+
+        image_height = image_size[:, height_index]
+        image_height = np.reshape(image_height, (image_height.shape[0], 1))
+        image_width = image_size[:, width_index]
+        image_width = np.reshape(image_width, (image_width.shape[0], 1))
+        return image_height, image_width
+
+    def create_training_labels(self, images, labels):
         # Creating all image point objects
+        labels, image_size = self._fix_labels_get_image_size(labels)
         if self.resize_points:
-            image_size = labels[:,-1]
-            labels = labels[:,:-1]
-            image_height = image_size[:, 0]
-            image_height = np.reshape(image_height, (image_height.shape[0], 1))
-            image_width = image_size[:, 1]
-            image_width = np.reshape(image_width, (image_width.shape[0], 1))
+            image_height, image_width = self._get_image_sizes_for_vectorizations(labels, image_size)
             kps = self._keypoint_vectorization_resize(labels[:, :, 0], labels[:, :, 1], image_height, image_width)
         else:
             kps = self._keypoint_vectorization(labels[:, :, 0], labels[:, :, 1])
@@ -142,17 +188,14 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         points = points[images_too_augmentated == 0]
 
         if len(points) == 0:
-            return self.__getitem__(index)
+            return None
 
         # Creating final x,y label pairs
         points_x = self._keypoint_x_vectorization(points[:])
         points_y = self._keypoint_y_vectorization(points[:])
-
         labels = np.reshape(np.dstack([points_x, points_y]), (images.shape[0], labels.shape[1] * 2))
 
-        if self.training:
-            return images, labels
-        return images
+        return labels
 
     def __len__(self):
         # Denotes the number of batches per epoch
