@@ -133,7 +133,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         if self.training:
             labels = self.create_training_labels(images, labels)
             if labels is None or len(labels) < self.batch_size:
-                labels = self.__getitem__(index)
+                images, labels = self.__getitem__(index)
             return images, labels
         return images
 

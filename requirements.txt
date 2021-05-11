@@ -1,0 +1,8 @@
+argparse
+opencv-python
+Pillow
+pandas
+numpy==1.19.2
+tensorflow
+imgaug
+tensorflow-addons

@@ -14,7 +14,7 @@ from LandMarkDataGenerator import LandMarkDataGenerator
 from LocalizationPointAccuracy import LocalizationPointAccuracy
 from CNNBlock import CNNBlock
 
-BATCH_SIZE = 5
+BATCH_SIZE = 3
 IMAGE_SIZE = (256, 256)
 COLS_DF_NAMES = ['x_Left_eye', 'y_Left_eye', 'x_Left_front_leg', 'y_Left_front_leg', 
         'x_Right_eye', 'y_Right_eye', 'x_Right_front_leg', 'y_Right_front_leg', 
@@ -30,11 +30,8 @@ def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radi
 			point = tuple(point)
 			img = cv2.circle(img, point, radius, color_real, thickness)
 			img = cv2.circle(img, point, radius_real, color_real, thickness)
-	# Window name in which image is displayed
-	window_name = 'image'
 	  
-	# Using cv2.imshow() method 
-	# Displaying the image 
+	# Save the image 
 	nn = np.random.randint(0,1000)
 	cv2.imwrite('new_image_{0}.jpg'.format(nn), img)
 	return img
@@ -75,7 +72,7 @@ def get_image_df(image_paths):
 
 def load_model(model_path):
 	model = MyModel(12)
-	model.load_weights("model/my_model_7_weights")
+	model.load_weights("./model/my_model_7_weights")
 	return model
 
 
