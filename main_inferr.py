@@ -176,10 +176,10 @@ def main(dir_path, output_path):
 	labels_column_names = pred_df.columns.to_list()[1:]
 
 	# Test predictions on original size
-	for i, image_path in enumerate(pred_df.image_path):
-		im = cv2.imread(image_path)
-		labels = pred_df.iloc[i][labels_column_names].to_list()
-		_ = show_labels(im, labels, radius = 1, thickness = 10)
+	# for i, image_path in enumerate(pred_df.image_path):
+	# 	im = cv2.imread(image_path)
+	# 	labels = pred_df.iloc[i][labels_column_names].to_list()
+	# 	_ = show_labels(im, labels, radius = 1, thickness = 10)
 
 
 	change_column_name_dict = {i : COLS_DF_NAMES[i] for i in range(0, len(COLS_DF_NAMES))}
