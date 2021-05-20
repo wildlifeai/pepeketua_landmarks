@@ -19,6 +19,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
                         scale = (1.0,1.0),
                         translate_percent = (0,0),
                         rotate = (0,0),
+                        rotate_90 = (0, 0),
                         shear = (0,0),
                         multiply = (1, 1),
                         multiply_per_channel = 0,
@@ -69,6 +70,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         scale: Scales image, default (1.0,1.0)
         translate_percent: Translates images by percentage, default (0,0)
         rotate: Rotates image, default (0,0)
+        rotate_90: Rotates image by 90 degrees, default (0,0)
         shear: Shears image, default (0,0)
         multiply: The value with which to multiply the pixel values in each image, default (1, 1)
         multiply_per_channel: default 0 ,Whether to use (imagewise) the same sample(s) for all channels
@@ -84,6 +86,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         self.scale = scale
         self.translate_percent = translate_percent
         self.rotate = rotate
+        self.rotate_90 = rotate_90
         self.shear = shear
         self.multiply = multiply
         self.multiply_per_channel = multiply_per_channel
@@ -127,15 +130,19 @@ class LandMarkDataGenerator(keras.utils.Sequence):
 
 
     def __getitem__(self, index):
-        # Generate one batch of data
-        images, labels = self.image_gen.next()
+        def get_item(index):
+            # Generate one batch of data
+            images, labels = self.image_gen.next()
 
-        if self.training:
-            labels = self.create_training_labels(images, labels)
-            if labels is None or len(labels) < self.batch_size:
-                images, labels = self.__getitem__(index)
+            if not self.training:
+                return images
+
+            images, labels = self.create_training_labels(images, labels)
+            if labels is None:
+                images, labels = get_item(index)
             return images, labels
-        return images
+
+        return get_item(index)
 
     def create_final_labels(self, labels):
         # Resizes labels to original image size
@@ -195,7 +202,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         points_y = self._keypoint_y_vectorization(points[:])
         labels = np.reshape(np.dstack([points_x, points_y]), (images.shape[0], labels.shape[1] * 2))
 
-        return labels
+        return images, labels
 
     def __len__(self):
         # Denotes the number of batches per epoch
@@ -211,7 +218,8 @@ class LandMarkDataGenerator(keras.utils.Sequence):
                         translate_percent = self.translate_percent,
                         rotate = self.rotate,
                         shear = self.shear
-                        )
+                        ),
+                    iaa.Rot90(self.rotate_90)
                     ])
         self.image_gen.on_epoch_end()
 

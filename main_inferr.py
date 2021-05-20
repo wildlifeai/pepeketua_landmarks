@@ -10,15 +10,13 @@ import tensorflow_addons as tfa
 import pandas as pd
 import numpy as np
 
+import config
 from LandMarkDataGenerator import LandMarkDataGenerator
 from LocalizationPointAccuracy import LocalizationPointAccuracy
 from CNNBlock import CNNBlock
 
 BATCH_SIZE = 3
 IMAGE_SIZE = (256, 256)
-COLS_DF_NAMES = ['x_Left_eye', 'y_Left_eye', 'x_Left_front_leg', 'y_Left_front_leg', 
-        'x_Right_eye', 'y_Right_eye', 'x_Right_front_leg', 'y_Right_front_leg', 
-        'x_Tip_of_snout', 'y_Tip_of_snout', 'x_Vent', 'y_Vent']
 
 def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radius_real = 10, color = (0, 0, 255), color_real = (0, 255, 0)):
 	for i in range(0, len(labels), 2):
@@ -179,8 +177,7 @@ def main(dir_path, output_path):
 	# 	_ = show_labels(im, labels, radius = 1, thickness = 10)
 
 
-	change_column_name_dict = {i : COLS_DF_NAMES[i] for i in range(0, len(COLS_DF_NAMES))}
-
+	change_column_name_dict = {i : config.COLS_DF_NAMES[i] for i in range(0, len(config.COLS_DF_NAMES))}
 	print("Creating output pickle")
 	pred_df.rename(columns = change_column_name_dict, inplace = True)
 	pred_df.to_pickle(output_path)
