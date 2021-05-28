@@ -11,12 +11,15 @@ import pandas as pd
 import numpy as np
 
 import config
+import utils
 from LandMarkDataGenerator import LandMarkDataGenerator
+from RotationGenerator import RotationGenerator
 from LocalizationPointAccuracy import LocalizationPointAccuracy
 from CNNBlock import CNNBlock
 
 BATCH_SIZE = 3
 IMAGE_SIZE = (256, 256)
+ROT_IMAGE_SIZE = (128, 128)
 
 def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radius_real = 10, color = (0, 0, 255), color_real = (0, 255, 0)):
 	for i in range(0, len(labels), 2):
@@ -32,7 +35,13 @@ def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radi
 	# Save the image 
 	nn = np.random.randint(0,1000)
 	cv2.imwrite('new_image_{0}.jpg'.format(nn), img)
+	# show_image(img)
 	return img
+
+def show_image(img):
+    cv2.imshow('', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 def get_image_path(dir_path):
@@ -70,7 +79,12 @@ def get_image_df(image_paths):
 
 def load_model(model_path):
 	model = MyModel(12)
-	model.load_weights("./model/my_model_7_weights")
+	model.load_weights(model_path)
+	return model
+
+def load_rot_model(model_path):
+	model = MyModelRotation()
+	model.load_weights(model_path)
 	return model
 
 
@@ -104,6 +118,50 @@ class MyModel(keras.Model):
         x = self.out(x)
         return x
 
+class MyModelRotation(keras.Model):
+    """docstring for MyModelRotation"""
+    def __init__(self, **kwargs):
+        super(MyModelRotation, self).__init__()
+        self.hidden = []
+        num_filters = 256
+        num_groups = 64
+        st = 2
+        counter = 0
+        for i in range(6):
+            self.hidden.append(keras.layers.Conv2D(num_filters, (3,3), activation = keras.activations.swish, strides = (st, st)))
+            self.hidden.append(tfa.layers.GroupNormalization(groups=int(num_groups), axis=3))
+            if num_filters > 64:
+                num_filters /= 2
+                num_groups /= 2
+            if counter == 1:
+                st = 1
+            counter += 1
+
+        self.dense_1 = keras.layers.Dense(256, activation = 'relu')
+        self.dense_2 = keras.layers.Dense(256, activation = 'relu')
+        self.dense_3 = keras.layers.Dense(128, activation = 'relu')
+        self.dense_4 = keras.layers.Dense(64, activation = 'relu')
+
+        self.drop_out_1 = keras.layers.Dropout(0.25)
+        self.drop_out_2 = keras.layers.Dropout(0.25)
+
+        self.out = keras.layers.Dense(2)
+        self.flatten = keras.layers.Flatten()
+
+    def call(self, inputs):
+        x = inputs
+        for layer in self.hidden:
+          x = layer(x)
+        x = self.flatten(x)
+        x = self.dense_1(x)
+        x = self.drop_out_1(x)
+        x = self.dense_2(x)
+        x = self.drop_out_2(x)
+        x = self.dense_3(x)
+        x = self.dense_4(x)
+        x = self.out(x)
+        return x
+
 
 def fix_prediction_order(prediction):
 	if len(prediction) <= BATCH_SIZE:
@@ -130,6 +188,7 @@ def create_arg_parse():
 
 def main(dir_path, output_path):
 	model_path = r"model/my_model_7_weights"
+	rot_model_path = r"model/model_weights_163"
 
 	print("Reading Dir")
 	image_paths = get_image_path(dir_path)
@@ -138,6 +197,27 @@ def main(dir_path, output_path):
 		raise argparse.ArgumentTypeError("{0} has no images".format(dir_path))
 
 	image_df = get_image_df(image_paths)
+	gpred_rot = RotationGenerator(dataframe = image_df,
+                        x_col = "image_path",
+                        y_col = image_df.columns.to_list()[1:],
+                        color_mode = "rgb",
+                        target_size = ROT_IMAGE_SIZE,
+                        batch_size = BATCH_SIZE,
+                        training = False,
+                        resize_points = True,
+                        height_first = False)
+
+	print("Loading Rotation Model")
+	rot_model = load_rot_model(rot_model_path)
+	print("Predicting rotation")
+	rot_prediction = rot_model.predict(gpred_rot)
+
+	rot_prediction = fix_prediction_order(rot_prediction)
+	pred_theta = np.arctan2(rot_prediction[:, 1], rot_prediction[:, 0])
+	rot_prediction = utils.positive_deg_theta(pred_theta)
+
+	image_df['rotation'] = - rot_prediction
+
 	gpred = LandMarkDataGenerator(dataframe = image_df,
                         x_col = "image_path",
                         y_col = image_df.columns.to_list()[1:],
@@ -146,7 +226,8 @@ def main(dir_path, output_path):
                         batch_size = BATCH_SIZE,
                         training = False,
                         resize_points = True,
-                        height_first = False)
+                        height_first = False,
+                        specific_rotations = True)
 
 
 	print("Loading Model")
@@ -156,31 +237,28 @@ def main(dir_path, output_path):
 	prediction = model.predict(gpred)
 
 	prediction = fix_prediction_order(prediction)
-
 	# Test predictions
-	pred_df = pd.concat([image_df.image_path, pd.DataFrame(prediction), image_df.width_size, image_df.height_size], axis = 1)
+	pred_df = pd.concat([image_df.image_path, pd.DataFrame(prediction), image_df.width_size, image_df.height_size, image_df.rotation], axis = 1)
 
 	labels_column_names = pred_df.columns.to_list()[1:-2]
 
-	ordered_predictions = []
-
 	pred_original_size = gpred.create_final_labels(pred_df[pred_df.columns.to_list()[1:]])
 
-	pred_df[pred_df.columns.to_list()[1:-2]] = pred_original_size
+	pred_df[pred_df.columns.to_list()[1:-3]] = pred_original_size
 	
-	labels_column_names = pred_df.columns.to_list()[1:]
+	labels_column_names = pred_df.columns.to_list()[1:-3]
 
 	# Test predictions on original size
-	# for i, image_path in enumerate(pred_df.image_path):
-	# 	im = cv2.imread(image_path)
-	# 	labels = pred_df.iloc[i][labels_column_names].to_list()
-	# 	_ = show_labels(im, labels, radius = 1, thickness = 10)
+	for i, image_path in enumerate(pred_df.image_path):
+		im = cv2.imread(image_path)
+		labels = pred_df.iloc[i][labels_column_names].to_list()
+		_ = show_labels(im, labels, radius = 1, thickness = 10)
 
 
-	change_column_name_dict = {i : config.COLS_DF_NAMES[i] for i in range(0, len(config.COLS_DF_NAMES))}
-	print("Creating output pickle")
-	pred_df.rename(columns = change_column_name_dict, inplace = True)
-	pred_df.to_pickle(output_path)
+	# change_column_name_dict = {i : config.COLS_DF_NAMES[i] for i in range(0, len(config.COLS_DF_NAMES))}
+	# print("Creating output pickle")
+	# pred_df.rename(columns = change_column_name_dict, inplace = True)
+	# pred_df.to_pickle(output_path)
 
 
 if __name__ == '__main__':

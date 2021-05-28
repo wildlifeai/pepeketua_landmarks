@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw
 import imgaug as ia
 import imgaug.augmenters as iaa
 from imgaug.augmentables import Keypoint, KeypointsOnImage
+import math
 
 class LandMarkDataGenerator(keras.utils.Sequence):
     """ Generator for augmenting images and keeping track of 
@@ -28,7 +29,8 @@ class LandMarkDataGenerator(keras.utils.Sequence):
                         height_first = True,
                         training = False,
                         normalize_y = False,
-                        preprocessing_function = None
+                        preprocessing_function = None,
+                        specific_rotations = False
                         ):
         """
         dataframe: dataframe holding the information 
@@ -61,6 +63,8 @@ class LandMarkDataGenerator(keras.utils.Sequence):
                      activation is tanh etc.
 
         preprocessing_function: Preprocessing function to be past onto ImageDataGenerator
+
+        specific_rotations: If last column of df is list of rotations for each image before augmantation
         
         Imgaug parameters for augmentation for more information
         visit imgaug documantations, all defualt values will
@@ -99,10 +103,11 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         self.height_first = height_first
         self.normalize_y = normalize_y
         self.preprocessing_function = preprocessing_function
+        self.specific_rotations = specific_rotations
 
         # Image generator
         self.image_datagen = keras.preprocessing.image.ImageDataGenerator(rescale = rescale,
-        																preprocessing_function = preprocessing_function)
+                                                                        preprocessing_function = preprocessing_function)
         # Vectorization function to create Keypoint objects for augmentation
         self._keypoint_vectorization = np.vectorize(lambda x,y: Keypoint(x = x, y = y))
 
@@ -134,7 +139,12 @@ class LandMarkDataGenerator(keras.utils.Sequence):
             # Generate one batch of data
             images, labels = self.image_gen.next()
 
+            if not self.training and not self.specific_rotations:
+                return images
+
             if not self.training:
+                rotations = labels[:, -1:]
+                images = self.rotate_images_specifically(rotations, images)
                 return images
 
             images, labels = self.create_training_labels(images, labels)
@@ -144,28 +154,53 @@ class LandMarkDataGenerator(keras.utils.Sequence):
 
         return get_item(index)
 
+    def _create_fake_images(self, image_heights, image_widths):
+        # For rotations images must be provided
+        images = []
+
+        for i in range(len(image_heights)):
+            height = int(image_heights[i][0])
+            width = int(image_widths[i][0])
+            # Shape to feed to iaa.Affine
+            images.append(np.ones((1, height, width, 1)))
+
+        return images
+
     def create_final_labels(self, labels):
         # Resizes labels to original image size
-        labels, image_size = self._fix_labels_get_image_size(labels)
-        image_height, image_width = self._get_image_sizes_for_vectorizations(labels, image_size)
+        labels, image_size, rotations = self._fix_labels_get_image_size(labels)
+        image_height, image_width = self._get_image_sizes_for_vectorizations(image_size)
         kps = self._keypoint_vectorization_resize_back(labels[:, :, 0], labels[:, :, 1], image_height, image_width)
+
+        if self.specific_rotations:
+            images = self._create_fake_images(image_height, image_width)
+            images, kps = self.rotate_images_specifically(-rotations, images, kps = kps)
+
         points = np.array(kps)
 
         # Creating final x,y label pairs
-        points_x = self._keypoint_x_vectorization(points[:])
-        points_y = self._keypoint_y_vectorization(points[:])
+        points_x = self._keypoint_x_vectorization(points)
+        points_y = self._keypoint_y_vectorization(points)
         labels = np.reshape(np.dstack([points_x, points_y]), (labels.shape[0], labels.shape[1] * 2))
 
         return labels
 
     def _fix_labels_get_image_size(self, labels):
+        rotations = np.array([])
         labels = np.array(labels)
+
+        if self.specific_rotations:
+            rotations = labels[:, -1:]
+            labels = labels[:, :-1]
+
         labels = np.reshape(labels, (labels.shape[0], int(labels.shape[1] / 2), 2))
+
         image_size = labels[:,-1]
         labels = labels[:,:-1]
-        return labels, image_size
 
-    def _get_image_sizes_for_vectorizations(self, labels, image_size):
+        return labels, image_size, rotations
+
+    def _get_image_sizes_for_vectorizations(self, image_size):
         height_index = 0 if self.height_first else 1
         width_index = 1 - height_index
 
@@ -177,13 +212,15 @@ class LandMarkDataGenerator(keras.utils.Sequence):
 
     def create_training_labels(self, images, labels):
         # Creating all image point objects
-        labels, image_size = self._fix_labels_get_image_size(labels)
+        labels, image_size, rotations = self._fix_labels_get_image_size(labels)
         if self.resize_points:
-            image_height, image_width = self._get_image_sizes_for_vectorizations(labels, image_size)
+            image_height, image_width = self._get_image_sizes_for_vectorizations(image_size)
             kps = self._keypoint_vectorization_resize(labels[:, :, 0], labels[:, :, 1], image_height, image_width)
         else:
             kps = self._keypoint_vectorization(labels[:, :, 0], labels[:, :, 1])
 
+        if self.specific_rotations:
+            images, kps = self.rotate_images_specifically(rotations, images, kps)
         images, kps_aug = self.seq(images = images, keypoints = kps.tolist())
         
         points = np.array(kps_aug)
@@ -203,6 +240,28 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         labels = np.reshape(np.dstack([points_x, points_y]), (images.shape[0], labels.shape[1] * 2))
 
         return images, labels
+
+    def rotate_images_specifically(self, rotations, images, kps = None):
+        for i, rot in enumerate(rotations):
+            # For when fixing predictions
+            if type(images) == list:
+                img = images[i]
+            else:
+                img = images[i:i+1,:]
+
+            if kps is not None:
+                kps_img = [kps[i].tolist()]
+                img, kps_img = iaa.Affine(rotate = rot)(images = img, keypoints = kps_img)
+                kps[i] = np.array(kps_img[0])
+            else:
+                img = iaa.Affine(rotate = rot)(images = img)
+
+            images[i] = img
+
+        if kps is not None:
+            return images, kps
+        return images
+
 
     def __len__(self):
         # Denotes the number of batches per epoch

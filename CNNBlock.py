@@ -14,4 +14,3 @@ class CNNBlock(keras.layers.Layer):
 			x = layer(x)
 
 		return x
-		

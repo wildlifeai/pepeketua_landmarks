@@ -38,7 +38,7 @@ class RotationGenerator(LandMarkDataGenerator):
 		y_body = y_vent - y_snout
 
 		x, y = keras.utils.normalize([x_body, y_body], axis = 0)
-		import pdb; pdb.set_trace()
+
 		return tf.transpose(tf.stack([x,y]))
 
 

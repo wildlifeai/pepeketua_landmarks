@@ -49,7 +49,7 @@ class LocalizationPointAccuracy(keras.metrics.Metric):
 			return 0.0
 		return self.total_outside_distance / self.point_outside
 
-	def reset_states(self):
+	def reset_state(self):
 		self.point_outside.assign(0)
 		self.all_points.assign(0)
 		self.total_outside_distance.assign(0)

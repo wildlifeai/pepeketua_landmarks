@@ -19,8 +19,8 @@ class RotationAccuracy(keras.metrics.Metric):
     def update_state(self, y_true, y_pred, sample_weight = None):
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
-        theta_true = tf.atan2(y_true[: ,0], y_true[:, 1])
-        theta_pred = tf.atan2(y_pred[:, 0], y_pred[:, 1])
+        theta_true = tf.atan2(y_true[:, 1], y_true[: ,0])
+        theta_pred = tf.atan2(y_pred[:, 1], y_pred[:, 0])
         diffs_1 = tf.abs(theta_true - theta_pred)
         diffs_2 = tf.abs(theta_true - theta_pred + (2 * np.pi))
         diffs_3 = tf.abs(theta_true - theta_pred - (2 * np.pi))
@@ -41,7 +41,7 @@ class RotationAccuracy(keras.metrics.Metric):
             return 0.0
         return self.total_angle_distance_outside / self.num_points_outside
 
-    def reset_states(self):
+    def reset_state(self):
         self.num_points.assign(0)
         self.num_points_outside.assign(0)
         self.total_angle_distance_outside.assign(0)

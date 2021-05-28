@@ -2,8 +2,8 @@ import numpy as np
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import pandas as pd
+import keras
 import tensorflow as tf
-import tensorflow.keras as keras
 import tensorflow_addons as tfa
 import cv2
 import time
@@ -13,9 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 import utils
-from RotationGenerator import RotationGenerator
-import imgaug as ia
-import imgaug.augmenters as iaa
+from LandMarkDataGenerator import LandMarkDataGenerator
 
 DB_FILE_PATH = r"tests\image_path_anotations_db.pkl"
 IMAGE_SIZE = (256, 256)
@@ -24,6 +22,17 @@ IMAGE_SIZE_HEIGHT_INDEX = 1
 DIR_PATH = r"D:\Archeys_frogs\whareorino_a\Grid A\Individual Frogs"
 
 
+def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radius_real = 10, color = (0, 0, 255), color_real = (0, 255, 0)):
+    for i in range(0, len(labels), 2):
+        point = np.round([labels[i], labels[i + 1]]).astype(int)
+        point = tuple(point)
+        img = cv2.circle(img, point, radius, color, thickness)
+    if labels_real is not None:
+        point = np.round([labels_real[i], labels_real[i + 1]]).astype(int)
+        point = tuple(point)
+        img = cv2.circle(img, point, radius, color_real, thickness)
+        img = cv2.circle(img, point, radius_real, color_real, thickness)
+    show_image(img)
 
 def show_image(img):
     cv2.imshow('', img)
@@ -34,30 +43,24 @@ def main():
     df = pd.read_pickle(DB_FILE_PATH)
     df.image_path = df.image_path.apply(lambda path: 'D:\\' + os.sep.join(os.path.normpath(path).split(os.sep)[5:]))
 
-    gt = RotationGenerator(dataframe = df,
+    rotations = np.random.randint(90, 180, size = (len(df), 1))
+    # df['rotations'] = rotations
+
+    gt = LandMarkDataGenerator(dataframe = df,
                         x_col = "image_path",
                         y_col = df.columns.to_list()[1:],
                         color_mode = "rgb",
                         target_size = IMAGE_SIZE,
                         batch_size = 10,
                         training = True,
-                        rotate_90 = [0,1,2,3],
                         resize_points = True,
-                        normalize_rotation = True)
+                        height_first = False,
+                        specific_rotations = False)
 
-    # x = gt.__getitem__(2)
-    # _, theta = utils.cart2pol(y[0][0], y[0][1])
-    # theta = utils.positive_deg_theta(theta)
-    # img = iaa.Affine(rotate = theta)(images = x[0:1])[0]
-
-
-    for j in range(5):
+    for j in range(2):
         x, y = gt.__getitem__(2)
-        for i in range(1):
-            rho, theta = utils.cart2pol(y[i][0], y[i][1])
-            theta = utils.positive_deg_theta(theta)
-            print("The rotation is: {0}, {1}".format(theta, rho))
-            show_image(x[i])
+        for i in range(2):
+            show_labels(x[i], y[i], thickness = 2, radius = 1)
 
 
 
