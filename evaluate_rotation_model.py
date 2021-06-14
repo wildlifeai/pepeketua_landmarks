@@ -23,19 +23,6 @@ IMAGE_SIZE = (224, 224)
 ROT_IMAGE_SIZE = (128, 128)
 
 
-def load_model(model_path):
-        model = MyModel()
-        opt = keras.optimizers.Adam(learning_rate = 0.001)
-        model.compile(optimizer = opt, 
-                      loss= tf.keras.losses.Huber(delta=10),
-                      metrics = [LocalizationPointAccuracy(accuracy=True, radius=8.75),
-                                 LocalizationPointAccuracy(accuracy=False, radius=8.75),
-                                 LocalizationPointAccuracy(accuracy=True, radius=4.375),
-                                 LocalizationPointAccuracy(accuracy=False, radius=4.375),
-                                 LocalizationPointAccuracy(accuracy=False, radius=0)])
-        model.load_weights(model_path)
-        return model
-
 def load_rot_model(model_path):
     model = MyModelRotation()
     opt = keras.optimizers.Adam(learning_rate = 0.0001)
@@ -55,59 +42,6 @@ def rotation_loss(y_true, y_pred, vec_norm = 10):
     point = tf.reduce_sum(tf.square(y_true - (y_pred / y_pred_norm)))
     norm = tf.reduce_sum(tf.abs(vec_norm - y_pred_norm))
     return 100 * point + norm
-
-class MyModel(keras.Model):
-    """docstring for MyModel"""
-    def __init__(self, **kwargs):
-        super(MyModel, self).__init__()
-        # self.backbone = tf.keras.applications.MobileNetV3Small(input_shape = (224, 224, 3), 
-        #                                                         include_top = False, 
-        #                                                         weights = 'imagenet', 
-        #                                                         pooling = None)
-
-        self.hidden = []
-        num_filters = 64
-        num_groups = 16
-        st = 2
-
-        for i in range(8):
-            self.hidden.append(tf.keras.layers.SeparableConv2D(num_filters, (3,3), activation = keras.activations.swish, strides = (st, st)))
-            self.hidden.append(tfa.layers.GroupNormalization(groups=int(num_groups), axis=3))
-            if num_filters <= 512 and i % 2 != 0:
-                num_filters *= 2
-                num_groups *= 2
-                st = 2
-            else:
-                st = 1
-
-
-        self.dense_1 = keras.layers.Dense(256, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
-        self.dense_2 = keras.layers.Dense(256, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
-        self.dense_3 = keras.layers.Dense(128, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
-        self.dense_4 = keras.layers.Dense(64, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
-
-        self.drop_out_1 = keras.layers.Dropout(0.55)
-        self.drop_out_2 = keras.layers.Dropout(0.55)
-        self.drop_out_3 = keras.layers.Dropout(0.55)
-        self.out = keras.layers.Dense(12)
-        self.flatten = keras.layers.Flatten()
-
-    def call(self, inputs):
-        x = inputs
-        # x = self.avg_layer(x)
-        for layer in self.hidden:
-          x = layer(x)
-        # x = self.backbone(x)
-        x = self.flatten(x)
-        x = self.dense_1(x)
-        # x = self.drop_out_1(x)
-        x = self.dense_2(x)
-        # x = self.drop_out_2(x)
-        # x = self.dense_3(x)
-        # x = self.drop_out_3(x)
-        # x = self.dense_4(x)
-        x = self.out(x)
-        return x
 
 class MyModelRotation(keras.Model):
     """docstring for MyModelRotation"""
@@ -162,7 +96,6 @@ def fix_prediction_order(prediction):
 
 
 def main():
-        model_path = r"model/model_weights_landmark_714_check"
         rot_model_path = r"model/model_weights_rot_10"
 
         train_df = pd.read_pickle("tests/train_db.pkl")
@@ -175,42 +108,32 @@ def main():
 
         print("Loading Rotation Model")
         rot_model = load_rot_model(rot_model_path)
-        print("Loading Model")
-        model = load_model(model_path)
 
-        for df_to_test in [train_df, val_df, test_df]:
+        validate_num = 10
+        df_names = ['Val', 'Test']
+        for j, df_to_test in enumerate([val_df, test_df]):
             gpred_rot = RotationGenerator(dataframe = df_to_test,
                             x_col = "image_path",
                             y_col = df_to_test.columns.to_list()[1:],
                             color_mode = "rgb",
                             target_size = ROT_IMAGE_SIZE,
                             batch_size = BATCH_SIZE,
-                            training = False,
+                            training = True,
+                            rotate_90 = [0,1,2,3],
                             resize_points = True,
                             height_first = False)
 
-            
-            print("Predicting rotation")
-            rot_prediction = rot_model.predict(gpred_rot)
 
-            rot_prediction = fix_prediction_order(rot_prediction)
-            pred_theta = np.arctan2(rot_prediction[:, 1], rot_prediction[:, 0])
-            rot_prediction = utils.positive_deg_theta(pred_theta)
+            print("Evaluating on {0}:".format(df_names[j]))
+            val_res = np.zeros((1, 7))
+            for i in range(validate_num):
+                val_res += rot_model.evaluate(gpred_rot)
 
-            df_to_test['rotation'] = - rot_prediction
-
-            gpred = LandMarkDataGenerator(dataframe = df_to_test,
-                            x_col = "image_path",
-                            y_col = df_to_test.columns.to_list()[1:],
-                            color_mode = "rgb",
-                            target_size = IMAGE_SIZE,
-                            batch_size = BATCH_SIZE,
-                            training = True,
-                            resize_points = True,
-                            height_first = False,
-                            specific_rotations = True)
-
-            model.evaluate(gpred)
+            val_res /= validate_num
+            print("*" * 60)
+            print(("loss: {0} - angle_accuracy_radius_40: {1} - angle_accuracy_radius_30: {2} - angle_accuracy_radius_20: {3} " +
+                "- angle_accuracy_radius_10: {4} - angle_outside_radius_20_distance: {5} - angle_outside_radius_0_distance: {6}").format(*val_res[0]))
+            print("*" * 60)
 
 if __name__ == '__main__':
     main()

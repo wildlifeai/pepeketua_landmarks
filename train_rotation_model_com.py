@@ -16,6 +16,7 @@ import matplotlib.gridspec as gridspec
 import utils
 from RotationGenerator import RotationGenerator
 from RotationAccuracy import RotationAccuracy
+from MultiGen import MultiGen
 import imgaug as ia
 import imgaug.augmenters as iaa
 
@@ -64,16 +65,14 @@ class MyModel(keras.Model):
         num_filters = 256
         num_groups = 64
         st = 2
-        counter = 0
         for i in range(6):
             self.hidden.append(keras.layers.Conv2D(num_filters, (3,3), activation = keras.activations.swish, strides = (st, st)))
             self.hidden.append(tfa.layers.GroupNormalization(groups=int(num_groups), axis=3))
             if num_filters > 64:
                 num_filters /= 2
                 num_groups /= 2
-            if counter == 1:
+            if i == 1:
                 st = 1
-            counter += 1
 
         self.avg_layer = keras.layers.AveragePooling2D(pool_size = (3,3), strides = (2,2))
 
@@ -165,13 +164,14 @@ def main():
                         resize_points = True,
                         height_first = False)
 
-    gv = RotationGenerator(dataframe = val_df,
+    gv = MultiGen(RotationGenerator, 3,
+                        dataframe = val_df,
                         x_col = "image_path",
                         y_col = val_df.columns.to_list()[1:],
                         color_mode = "rgb",
                         target_size = IMAGE_SIZE,
                         batch_size = 32,
-                        rotate_90 = [1,2,3],
+                        rotate_90 = [0,1,2,3],
                         training = True,
                         resize_points = True,
                         height_first = False)
@@ -182,6 +182,18 @@ def main():
                         color_mode = "rgb",
                         target_size = IMAGE_SIZE,
                         batch_size = 32,
+                        rotate_90 = [0, 1, 2, 3],
+                        training = True,
+                        resize_points = True,
+                        height_first = False)
+
+    gval = RotationGenerator(dataframe = val_df,
+                        x_col = "image_path",
+                        y_col = val_df.columns.to_list()[1:],
+                        color_mode = "rgb",
+                        target_size = IMAGE_SIZE,
+                        batch_size = 32,
+                        rotate_90 = [0, 1, 2, 3],
                         training = True,
                         resize_points = True,
                         height_first = False)
@@ -189,22 +201,48 @@ def main():
 
     my_model = create_my_model()
     weights_path = "weights/model_weights_{0}".format(np.random.randint(0,1000))
-    weights_path = "weights/model_weights_163"
-    # check = keras.callbacks.ModelCheckpoint(weights_path, monitor="val_angle_accuracy_radius_20", mode = "max", save_weights_only=True, save_best_only=True)
-    # history = my_model.fit(gt, validation_data = gv, verbose = 1, epochs = 150, callbacks = [check])
+    weights_path = "weights/model_weights_rot_2"
+    # my_model.load_weights(weights_path + '_10')
+    check = keras.callbacks.ModelCheckpoint(weights_path + '_20', monitor="val_angle_accuracy_radius_20", mode = "max", save_weights_only=True, save_best_only=True)
+    check10 = keras.callbacks.ModelCheckpoint(weights_path + '_10', monitor="val_angle_accuracy_radius_10", mode = "max", save_weights_only=True, save_best_only=True)
+    early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=70, verbose=0, mode='auto', baseline=None, restore_best_weights=False)
+    history = my_model.fit(gt, validation_data = gv, verbose = 1, epochs = 200, callbacks = [check, check10, early])
 
-    weights_path = "model/model_weights_163"
-    print(weights_path)
+    # weights_path = "model/model_weights_rot"
 
+    validate_num = 10
     my_model = load_diff_metrics()
-    my_model.load_weights(weights_path)
-    # print("Evaluating on Train:")
-    # my_model.evaluate(gt)
-    print("Evaluating on Val:")
-    # my_model.evaluate(gv)
 
-    x, y = gv.__getitem__(0)
-    import pdb; pdb.set_trace()
+    for weights in [weights_path + '_20', weights_path + '_10']:
+        my_model.load_weights(weights)
+        print("Evaluating on Val:")
+        val_res = np.zeros((1, 7))
+        for i in range(validate_num):
+            val_res += my_model.evaluate(gval)
+
+        val_res /= validate_num
+        print("*" * 60)
+        print(weights)
+        print(("loss: {0} - angle_accuracy_radius_40: {1} - angle_accuracy_radius_30: {2} - angle_accuracy_radius_20: {3} " +
+            "- angle_accuracy_radius_10: {4} - angle_outside_radius_20_distance: {5} - angle_outside_radius_0_distance: {6}").format(*val_res[0]))
+        print("*" * 60)
+
+    for weights in [weights_path + '_20', weights_path + '_10']:
+        my_model.load_weights(weights)
+        print("Evaluating on Val:")
+        val_res = np.zeros((1, 7))
+        for i in range(validate_num):
+            val_res += my_model.evaluate(gtest)
+
+        val_res /= validate_num
+        print("*" * 60)
+        print(weights)
+        print(("loss: {0} - angle_accuracy_radius_40: {1} - angle_accuracy_radius_30: {2} - angle_accuracy_radius_20: {3} " +
+            "- angle_accuracy_radius_10: {4} - angle_outside_radius_20_distance: {5} - angle_outside_radius_0_distance: {6}").format(*val_res[0]))
+        print("*" * 60)
+
+    # x, y = gv.__getitem__(0)
+    # import pdb; pdb.set_trace()
     # print("Evaluating on Test:")
     # my_model.evaluate(gtest)
 

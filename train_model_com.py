@@ -16,8 +16,10 @@ import matplotlib.gridspec as gridspec
 import utils
 from LandMarkDataGenerator import LandMarkDataGenerator
 from LocalizationPointAccuracy import LocalizationPointAccuracy
+from MultiGen import MultiGen
 import imgaug as ia
 import imgaug.augmenters as iaa
+
 
 DB_FILE_PATH = r"tests\image_path_anotations_db.pkl"
 IMAGE_SIZE = (224, 224)
@@ -39,13 +41,13 @@ def summarize_diagnostics(history, since_step = 10):
     # plt.subplot(213)
     ax2 = fig.add_subplot(gs[1,:])
     ax2.set_title('Classification Accuracy')
-    ax2.plot(history.history['angle_accuracy_radius_10'][since_step:], color='blue', label='train')
-    ax2.plot(history.history['val_angle_accuracy_radius_10'][since_step:], color='orange', label='test')
+    ax2.plot(history.history['localization_point_accuracy_radius_8.75'][since_step:], color='blue', label='train')
+    ax2.plot(history.history['val_localization_point_accuracy_radius_8.75'][since_step:], color='orange', label='test')
 
     ax2 = fig.add_subplot(gs[2,:])
     ax2.set_title('Outside Radius Distance')
-    ax2.plot(history.history['angle_outside_radius_0_distance'][since_step:], color='blue', label='train')
-    ax2.plot(history.history['val_angle_outside_radius_0_distance'][since_step:], color='orange', label='test')
+    ax2.plot(history.history['localization_point_accuracy_radius_4.375'][since_step:], color='blue', label='train')
+    ax2.plot(history.history['val_localization_point_accuracy_radius_4.375'][since_step:], color='orange', label='test')
 
     plt.show()
 
@@ -61,42 +63,32 @@ class MyModel(keras.Model):
     def __init__(self, **kwargs):
         super(MyModel, self).__init__()
         # self.backbone = tf.keras.applications.MobileNetV3Small(input_shape = (224, 224, 3), 
-        #                                                         include_top = 'imagenet', 
-        #                                                         weights = None, 
+        #                                                         include_top = False, 
+        #                                                         weights = 'imagenet', 
         #                                                         pooling = None)
+
         self.hidden = []
-        num_filters = 512
-        num_groups = 64
+        num_filters = 64
+        num_groups = 16
         st = 2
-        counter = 0
-        for i in range(6):
-            if i > 0:
-                self.hidden.append(tf.keras.layers.SeparableConv2D(num_filters, (3,3), activation = keras.activations.swish, strides = (st, st),
-                                                                    activity_regularizer = tf.keras.regularizers.l2()))
-            else:
-                self.hidden.append(tf.keras.layers.SeparableConv2D(num_filters, (3,3), activation = keras.activations.swish, strides = (st, st)))
+
+        for i in range(8):
+            self.hidden.append(tf.keras.layers.SeparableConv2D(num_filters, (3,3), activation = keras.activations.swish, strides = (st, st)))
             self.hidden.append(tfa.layers.GroupNormalization(groups=int(num_groups), axis=3))
-            if num_filters > 64 and counter % 2 != 0:
-                num_filters /= 2
-                num_groups /= 2
+            if num_filters <= 512 and i % 2 != 0:
+                num_filters *= 2
+                num_groups *= 2
                 st = 2
             else:
                 st = 1
-            counter += 1
-            # if num_filters > 64:
-            #     num_filters /= 2
-            #     num_groups /= 2
 
-            # if counter == 1:
-            #     st = 1
-            # counter += 1
 
-        self.dense_1 = keras.layers.Dense(256, activation = 'relu')
-        self.dense_2 = keras.layers.Dense(256, activation = 'relu')
-        self.dense_3 = keras.layers.Dense(128, activation = 'relu')
-        self.dense_4 = keras.layers.Dense(64, activation = 'relu')
+        self.dense_1 = keras.layers.Dense(256, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
+        self.dense_2 = keras.layers.Dense(256, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
+        self.dense_3 = keras.layers.Dense(128, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
+        self.dense_4 = keras.layers.Dense(64, activation = 'relu', kernel_regularizer = tf.keras.regularizers.l2())
 
-        self.drop_out_1 = keras.layers.Dropout(0.55)
+        self.drop_out_1 = keras.layers.Dropout(0.25)
         self.drop_out_2 = keras.layers.Dropout(0.55)
         self.drop_out_3 = keras.layers.Dropout(0.55)
         self.out = keras.layers.Dense(12)
@@ -109,9 +101,9 @@ class MyModel(keras.Model):
           x = layer(x)
         # x = self.backbone(x)
         x = self.flatten(x)
-        # x = self.dense_1(x)
+        x = self.dense_1(x)
         # x = self.drop_out_1(x)
-        # x = self.dense_2(x)
+        x = self.dense_2(x)
         # x = self.drop_out_2(x)
         # x = self.dense_3(x)
         # x = self.drop_out_3(x)
@@ -119,27 +111,18 @@ class MyModel(keras.Model):
         x = self.out(x)
         return x
 
-def create_learning_rate():
-    steps_in_epoch = 225
-    base_lr = 0.00001
-    boundaries = [steps_in_epoch * 50, steps_in_epoch * 100, steps_in_epoch * 150]
-    values = [base_lr, base_lr * 0.1, base_lr * 0.001, base_lr * 0.0001]
-    learning_rate_fn = keras.optimizers.schedules.PiecewiseConstantDecay(
-        boundaries, values)
-    return learning_rate_fn
-
 def create_my_model():
     model = MyModel()
-    opt = keras.optimizers.Adam(learning_rate = 0.0001)
+    opt = keras.optimizers.Adam(learning_rate = 0.001)
     model.compile(optimizer = opt, 
                   loss= tf.keras.losses.Huber(delta=10),
-                  metrics = [LocalizationPointAccuracy(accuracy=True, radius=10),
-                             LocalizationPointAccuracy(accuracy=True, radius=5)])
+                  metrics = [LocalizationPointAccuracy(accuracy=True, radius=8.75),
+                             LocalizationPointAccuracy(accuracy=True, radius=4.375)])
     return model
 
 def load_diff_metrics():
     model = MyModel()
-    opt = keras.optimizers.Adam(learning_rate = 0.0001)
+    opt = keras.optimizers.Adam(learning_rate = 0.001)
     model.compile(optimizer = opt, 
                   loss= tf.keras.losses.Huber(delta=10),
                   metrics = [LocalizationPointAccuracy(accuracy=True, radius=8.75),
@@ -164,20 +147,35 @@ def main():
                         y_col = train_df.columns.to_list()[1:],
                         color_mode = "rgb",
                         target_size = IMAGE_SIZE,
-                        batch_size = 5,
+                        batch_size = 32,
                         rotate = (-30,30),
+                        translate_percent = (-0.2,0.2),
+                        multiply = (0.9, 1.1),
                         multiply_per_channel = True,
                         training = True,
                         resize_points = True,
                         height_first = False,
                         specific_rotations = True)
 
-    gv = LandMarkDataGenerator(dataframe = val_df,
+    gv = MultiGen(LandMarkDataGenerator, 2,
+                        dataframe = val_df,
                         x_col = "image_path",
                         y_col = val_df.columns.to_list()[1:],
                         color_mode = "rgb",
                         target_size = IMAGE_SIZE,
-                        batch_size = 5,
+                        batch_size = 32,
+                        rotate = (-20, 20),
+                        training = True,
+                        resize_points = True,
+                        height_first = False,
+                        specific_rotations = True)
+
+    gval = LandMarkDataGenerator(dataframe = val_df,
+                        x_col = "image_path",
+                        y_col = val_df.columns.to_list()[1:],
+                        color_mode = "rgb",
+                        target_size = IMAGE_SIZE,
+                        batch_size = 32,
                         rotate = (-20, 20),
                         training = True,
                         resize_points = True,
@@ -189,7 +187,7 @@ def main():
                         y_col = test_df.columns.to_list()[1:],
                         color_mode = "rgb",
                         target_size = IMAGE_SIZE,
-                        batch_size = 5,
+                        batch_size = 32,
                         rotate = (-20, 20),
                         training = True,
                         resize_points = True,
@@ -198,25 +196,57 @@ def main():
 
 
     my_model = create_my_model()
-    weights_path = "weights/model_weights_{0}".format(np.random.randint(0,1000))
-    # weights_path = "weights/model_weights_397"
-    # my_model.load_weights(weights_path)
-    check = keras.callbacks.ModelCheckpoint(weights_path, monitor="val_localization_point_accuracy_radius_8.75", mode = "max", save_weights_only=True, save_best_only=True)
-    history = my_model.fit(gt, validation_data = gv, verbose = 1, epochs = 150, callbacks = [check])
+    r_n = np.random.randint(0,1000)
+    weights_path_check = "weights/model_weights_landmark_{0}_check".format(r_n)
+    weights_path_check_loss = "weights/model_weights_landmark_{0}_check_loss".format(r_n)
+    weights_path_early = "weights/model_weights_{0}_early".format(r_n)
 
-    print(weights_path)
+    print("Random: {0}".format(r_n))
 
+    # check = keras.callbacks.ModelCheckpoint(weights_path_check, monitor="val_localization_point_accuracy_radius_4.375", mode = "max", save_weights_only=True, save_best_only=True)
+    # check_loss = keras.callbacks.ModelCheckpoint(weights_path_check_loss, monitor="val_loss", mode = "min", save_weights_only=True, save_best_only=True)
+    # early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=70, verbose=0, mode='auto', baseline=None, restore_best_weights=False)
+    # history = my_model.fit(gt, validation_data = gv, verbose = 1, epochs = 450, callbacks = [check, early, check_loss])
+
+    # my_model.save_weights(weights_path_early)
+
+    print("Random: {0}".format(r_n))
+
+    validate_num = 10
     my_model = load_diff_metrics()
-    my_model.load_weights(weights_path)
-    print("Evaluating on Train:")
-    my_model.evaluate(gt)
-    print("Evaluating on Val:")
-    my_model.evaluate(gv)
-    print("Evaluating on Test:")
-    my_model.evaluate(gtest)
 
-    summarize_diagnostics(history)
+    for weights in [weights_path_check, weights_path_check_loss]:
+        my_model.load_weights(weights)
+        print("Evaluating on Val:")
+        val_res = np.zeros((1, 6))
+        for i in range(validate_num):
+            val_res += my_model.evaluate(gval)
 
+        val_res /= validate_num
+        print("*" * 60)
+        print(weights)
+        print(("loss: {0} - localization_point_accuracy_radius_8.75: {1} - localization_outside_radius_8.75_distance: {2} - " +
+            "localization_point_accuracy_radius_4.375: {3} - localization_outside_radius_4.375_distance: {4} - " +
+            "localization_outside_radius_0_distance: {5}").format(*val_res[0]))
+        print("*" * 60)
+
+
+    for weights in [weights_path_check, weights_path_check_loss]:
+        my_model.load_weights(weights)
+        print("Evaluating on Test:")
+        val_res = np.zeros((1, 6))
+        for i in range(validate_num):
+            val_res += my_model.evaluate(gtest)
+
+        val_res /= validate_num
+        print("*" * 60)
+        print(weights)
+        print(("loss: {0} - localization_point_accuracy_radius_8.75: {1} - localization_outside_radius_8.75_distance: {2} - " +
+            "localization_point_accuracy_radius_4.375: {3} - localization_outside_radius_4.375_distance: {4} - " +
+            "localization_outside_radius_0_distance: {5}").format(*val_res[0]))
+        print("*" * 60)
+
+    # summarize_diagnostics(history)
     # m = LocalizationPointAccuracy(accuracy=True, radius=30)
     # counter = 0
     # for j in range(math.ceil(len(val_df) / 32)):

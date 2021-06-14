@@ -1,2 +1,10 @@
+#!/bin/bash
+script="$0"
+first="$1"
 cd /code
-python main_inferr.py -d /info
+if $first
+then
+  python main_inferr.py -d /info -s
+else
+  python main_inferr.py -d /info
+fi
