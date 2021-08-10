@@ -1,6 +1,5 @@
 import math
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import argparse
 import cv2
 from PIL import Image
@@ -14,66 +13,10 @@ import config
 import utils
 from LandMarkDataGenerator import LandMarkDataGenerator
 from RotationGenerator import RotationGenerator
-from LocalizationPointAccuracy import LocalizationPointAccuracy
-from CNNBlock import CNNBlock
 
 BATCH_SIZE = 3
 IMAGE_SIZE = (224, 224)
 ROT_IMAGE_SIZE = (128, 128)
-
-
-
-def get_image_path(dir_path):
-    image_paths = []
-    for (dir_path, dir_names, file_names) in os.walk(dir_path):
-        for file_name in file_names:
-            file_path = os.sep.join([dir_path, file_name])
-            if is_image(file_path):
-                image_paths.append(file_path)
-
-    return image_paths
-
-def is_image(file_path):
-    try:
-        im = Image.open(file_path)
-        im.close()
-        return True
-    except Exception as e:
-        return False
-
-def get_image_df(image_paths):
-    df = pd.DataFrame(image_paths, columns = ['image_path'])
-    # Using loop and not apply because this is considerably faster
-    image_sizes = []
-    for im_path in df.image_path:
-        im = cv2.imread(im_path)
-        im_size = im.shape[:2]
-        image_sizes.append(im_size)
-
-    image_sizes = np.array(image_sizes)
-    df['width_size'] = image_sizes[:, 1]
-    df['height_size'] = image_sizes[:, 0]
-
-    return df
-
-def load_model(model_path):
-    model = MyModel()
-    opt = keras.optimizers.Adam(learning_rate = 0.001)
-    model.compile(optimizer = opt, 
-                  loss= tf.keras.losses.Huber(delta=10),
-                  metrics = [LocalizationPointAccuracy(accuracy=True, radius=8.75),
-                             LocalizationPointAccuracy(accuracy=False, radius=8.75),
-                             LocalizationPointAccuracy(accuracy=True, radius=4.375),
-                             LocalizationPointAccuracy(accuracy=False, radius=4.375),
-                             LocalizationPointAccuracy(accuracy=False, radius=0)])
-    model.load_weights(model_path)
-    return model
-
-def load_rot_model(model_path):
-    model = MyModelRotation()
-    model.load_weights(model_path)
-    return model
-
 
 class MyModel(keras.Model):
     """docstring for MyModel"""
@@ -155,47 +98,41 @@ class MyModelRotation(keras.Model):
         x = self.out(x)
         return x
 
-
 def fix_prediction_order(prediction):
     if len(prediction) <= BATCH_SIZE:
         return prediction
 
     return np.roll(prediction, BATCH_SIZE, axis = 0)
 
-def dir_exists(x):
-    if not os.path.isdir(x):
-        raise argparse.ArgumentTypeError("{0} does not exist".format(x))
-    return x
+def get_image_df(image_paths):
+    df = pd.DataFrame(image_paths, columns = ['image_path'])
+    # Using loop and not apply because this is considerably faster
+    image_sizes = []
+    for im_path in df.image_path:
+        im = cv2.imread(im_path)
+        im_size = im.shape[:2]
+        image_sizes.append(im_size)
 
-def create_arg_parse():
-    parser = argparse.ArgumentParser(description = "Predict landmarks for Archey's Frogs")
-    parser.add_argument('-d', '--dir_path', required = True, 
-        type = dir_exists, 
-        help = "Directory with images for the model to predict")
-    parser.add_argument('-o', '--output_path', 
-        type=str, 
-        help="File path to the output pickle file",
-        default = "prediction.pkl")
-    parser.add_argument('-s', '--save_images', 
-        action = 'store_true',
-        help="If to save images with landmark detection, will save to landmark_images",
-        default = False)
-    return parser.parse_args()
+    image_sizes = np.array(image_sizes)
+    df['width_size'] = image_sizes[:, 1]
+    df['height_size'] = image_sizes[:, 0]
 
+    return df
 
-def main(dir_path, output_path, save_images):
-    model_path = r"model/model_weights_landmark_714_check"
-    rot_model_path = r"model/model_weights_rot_10"
-    if not os.path.exists('landmark_images'):
-        os.makedirs('landmark_images')
+def load_model(model_path):
+    model = MyModel()
+    model.load_weights(model_path)
+    return model
 
-    print("Reading Dir")
-    image_paths = get_image_path(dir_path)
+def load_rot_model(model_path):
+    model = MyModelRotation()
+    model.load_weights(model_path)
+    return model
 
-    if len(image_paths) == 0:
-        raise argparse.ArgumentTypeError("{0} has no images".format(dir_path))
-
-    image_df = get_image_df(image_paths)
+def rotate(image_path, weigths_path = r"model/model_weights_rot_10"):
+    image_df = get_image_df([image_path])
+    print("Loading Rotation Model")
+    rot_model = load_rot_model(weigths_path)
     gpred_rot = RotationGenerator(dataframe = image_df,
                         x_col = "image_path",
                         y_col = image_df.columns.to_list()[1:],
@@ -205,9 +142,6 @@ def main(dir_path, output_path, save_images):
                         training = False,
                         resize_points = True,
                         height_first = False)
-
-    print("Loading Rotation Model")
-    rot_model = load_rot_model(rot_model_path)
     print("Predicting rotation")
     rot_prediction = rot_model.predict(gpred_rot)
 
@@ -217,6 +151,9 @@ def main(dir_path, output_path, save_images):
 
     image_df['rotation'] = - rot_prediction
 
+    return image_df, rot_prediction
+
+def find_landmarks(image_df, weigths_path = r"model/model_weights_landmark_714_check"):
     gpred = LandMarkDataGenerator(dataframe = image_df,
                         x_col = "image_path",
                         y_col = image_df.columns.to_list()[1:],
@@ -227,12 +164,9 @@ def main(dir_path, output_path, save_images):
                         resize_points = True,
                         height_first = False,
                         specific_rotations = True)
-
-
-    print("Loading Model")
-    model = load_model(model_path)
-
-    print("Predicting")
+    print("Loading Landmark Model")
+    model = load_model(weigths_path)
+    print("Predicting Landmarks")
     prediction = model.predict(gpred)
 
     prediction = fix_prediction_order(prediction)
@@ -244,25 +178,14 @@ def main(dir_path, output_path, save_images):
     pred_original_size = gpred.create_final_labels(pred_df[pred_df.columns.to_list()[1:]])
 
     pred_df[pred_df.columns.to_list()[1:-3]] = pred_original_size
-    
-    labels_column_names = pred_df.columns.to_list()[1:-3]
 
-    
-    if save_images:
-        # Save predictions on original size
-        for j, image_path in enumerate(pred_df.image_path):
-            im = cv2.imread(image_path)
-            labels = pred_df.iloc[j][labels_column_names].to_list()
-            thickness = math.ceil(pred_df.iloc[j].height_size / 224) + 1
-            _ = utils.show_labels(im, labels, radius = 1, thickness = thickness)
+    return pred_df
 
+def show_labels(img, labels, radius = 5, thickness = 5, color = (0, 0, 255)):
+    labels = labels.iloc[0][labels.columns.to_list()[1:-3]].to_list()
+    for i in range(0, len(labels), 2):
+        point = np.round([labels[i], labels[i+1]]).astype(int)
+        point = tuple(point)
+        img = cv2.circle(img, point, radius, color, thickness)
 
-    change_column_name_dict = {i : config.COLS_DF_NAMES[i] for i in range(0, len(config.COLS_DF_NAMES))}
-    print("Creating output pickle")
-    pred_df.rename(columns = change_column_name_dict, inplace = True)
-    pred_df.to_pickle(output_path)
-
-
-if __name__ == '__main__':
-    args = create_arg_parse()
-    main(args.dir_path, args.output_path, args.save_images)
+    return img
