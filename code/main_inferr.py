@@ -197,7 +197,7 @@ def create_arg_parse():
     parser.add_argument('-o', '--output_path', 
         type=str, 
         help="File path to the output pickle file",
-        default = "prediction.pkl")
+        default = "/info/prediction.pkl")
     parser.add_argument('-s', '--save_images', 
         action = 'store_true',
         help="If to save images with landmark detection, will save to landmark_images",
