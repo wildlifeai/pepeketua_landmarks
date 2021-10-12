@@ -47,7 +47,7 @@ Citation
 
 If you use this code or its models in your research, please cite:
 
-Huy G, Carmon E, Vinograd B, Anton V (2021). An open-source landmark detection model approach to facilitate the individual identification of New Zealand endemic frogs. https://github.com/wildlifeai/pepeketua_landmarks
+Hay G, Carmon E, Vinograd B, Anton V (2021). An open-source landmark detection model approach to facilitate the individual identification of New Zealand endemic frogs. https://github.com/wildlifeai/pepeketua_landmarks
 
 
 Collaborations/questions
