@@ -17,10 +17,12 @@ This repository contains scripts related to the Landmark Detection component of 
 
 SUMMARY OF THE REPO
 
-.. image:: images/landmark_example_labelled
+.. image:: images/landmark_example_labelled.jpg
    :align: center
+   :width: 400
    :alt: "(Example of the frog landmarks predicted by the model.")
    
+Example of the landmarks (red points) produced by the model.  
 
 Quickstart
 --------------------
