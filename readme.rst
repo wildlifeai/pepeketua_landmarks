@@ -15,7 +15,7 @@ Overview
 
 This repository contains scripts related to the Landmark Detection component of the Pepeketua ID. 
 
-SUMMARY OF THE REPO
+The Landmark Detection model predicts six frog landmarks in an image. These landmarks will be used to morph and crop the image to facilitate the individual identification of each frog.
 
 .. image:: images/landmark_example_labelled.jpg
    :align: center
