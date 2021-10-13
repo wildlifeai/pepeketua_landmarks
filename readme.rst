@@ -39,8 +39,6 @@ Requirements
 
 Instructions
 -------------------------
-
-Summary instructions
 Download the repo, and after building the  docker with build_docker.sh, run run_docker.sh <dir_path> where dir path is a path to your dir with all the images.
 It will automaticly find all images in sub dirs as well.
 
