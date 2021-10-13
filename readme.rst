@@ -17,7 +17,7 @@ This repository contains scripts related to the Landmark Detection component of 
 
 SUMMARY OF THE REPO
 
-.. image:: images/Landmark_example.png
+.. image:: images/landmark_example_labelled
    :align: center
    :alt: "(Example of the frog landmarks predicted by the model.")
    
