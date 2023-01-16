@@ -1,39 +1,41 @@
-import tensorflow as tf
-import tensorflow.keras as keras
-import numpy as np
-from PIL import Image, ImageDraw
-import imgaug as ia
 import imgaug.augmenters as iaa
-from imgaug.augmentables import Keypoint, KeypointsOnImage
-import math
+import numpy as np
+from imgaug.augmentables import Keypoint
+from tensorflow import keras
+
+from src.ServerImageDataGenerator import ServerImageDataGenerator
+
 
 class LandMarkDataGenerator(keras.utils.Sequence):
-    """ Generator for augmenting images and keeping track of 
-        landmark points after augmentation
+    """Generator for augmenting images and keeping track of
+    landmark points after augmentation
     """
-    def __init__(self, dataframe,
-                        x_col,
-                        y_col,
-                        color_mode = "rgb",
-                        target_size = (256, 256),
-                        batch_size = 32,
-                        scale = (1.0,1.0),
-                        translate_percent = (0,0),
-                        rotate = (0,0),
-                        rotate_90 = (0, 0),
-                        shear = (0,0),
-                        multiply = (1, 1),
-                        multiply_per_channel = 0,
-                        rescale = 1/255,
-                        resize_points = False,
-                        height_first = True,
-                        training = False,
-                        normalize_y = False,
-                        preprocessing_function = None,
-                        specific_rotations = False
-                        ):
+
+    def __init__(
+        self,
+        dataframe,
+        x_col,
+        y_col,
+        color_mode="rgb",
+        target_size=(256, 256),
+        batch_size=32,
+        scale=(1.0, 1.0),
+        translate_percent=(0, 0),
+        rotate=(0, 0),
+        rotate_90=(0, 0),
+        shear=(0, 0),
+        multiply=(1, 1),
+        multiply_per_channel=0,
+        rescale=1 / 255,
+        resize_points=False,
+        height_first=True,
+        training=False,
+        normalize_y=False,
+        preprocessing_function=None,
+        specific_rotations=False,
+    ):
         """
-        dataframe: dataframe holding the information 
+        dataframe: dataframe holding the information
 
         x_col: column name of image paths
 
@@ -54,8 +56,8 @@ class LandMarkDataGenerator(keras.utils.Sequence):
 
         height_first: If using resize the df last two image size column struct is height,width, default True
 
-        training: Determins if to return new label values or only images, used for training or evaluating model 
-                  should be True for training, validating and test but should be False for prediction. 
+        training: Determins if to return new label values or only images, used for training or evaluating model
+                  should be True for training, validating and test but should be False for prediction.
                   default False
 
         normalize_y: Whether or not to devide point coordinates  by size of image
@@ -65,7 +67,7 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         preprocessing_function: Preprocessing function to be past onto ImageDataGenerator
 
         specific_rotations: If last column of df is list of rotations for each image before augmantation
-        
+
         Imgaug parameters for augmentation for more information
         visit imgaug documantations, all defualt values will
         lead to no augmentations, when using Tuples will chose a value
@@ -78,10 +80,10 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         shear: Shears image, default (0,0)
         multiply: The value with which to multiply the pixel values in each image, default (1, 1)
         multiply_per_channel: default 0 ,Whether to use (imagewise) the same sample(s) for all channels
-                                (False) or to sample value(s) for each channel (True). 
-                                Setting this to True will therefore lead to different transformations per image and channel, 
-                                otherwise only per image. If this value is a float p, then for p percent of all images per_channel will be treated as True. 
-                                If it is a StochasticParameter it is expected to produce samples with values between 0.0 and 1.0, 
+                                (False) or to sample value(s) for each channel (True).
+                                Setting this to True will therefore lead to different transformations per image and channel,
+                                otherwise only per image. If this value is a float p, then for p percent of all images per_channel will be treated as True.
+                                If it is a StochasticParameter it is expected to produce samples with values between 0.0 and 1.0,
                                 where values >0.5 will lead to per-channel behaviour (i.e. same as True).
 
         """
@@ -106,33 +108,60 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         self.specific_rotations = specific_rotations
 
         # Image generator
-        self.image_datagen = keras.preprocessing.image.ImageDataGenerator(rescale = rescale,
-                                                                        preprocessing_function = preprocessing_function)
+        if self.training:
+            self.image_datagen = keras.preprocessing.image.ImageDataGenerator(
+                rescale=rescale, preprocessing_function=preprocessing_function
+            )
+        else:
+            self.image_datagen = ServerImageDataGenerator(rescale=rescale)
+
         # Vectorization function to create Keypoint objects for augmentation
-        self._keypoint_vectorization = np.vectorize(lambda x,y: Keypoint(x = x, y = y))
+        self._keypoint_vectorization = np.vectorize(lambda x, y: Keypoint(x=x, y=y))
 
         # Vectorization function to create Keypoint objects for augmentation with resizing
         # image_size is (height, width)
-        self._keypoint_vectorization_resize = np.vectorize(lambda x, y, im_height, im_width: Keypoint(x = x, y = y).project((im_height, im_width), self.target_size))
-        self._keypoint_vectorization_resize_back = np.vectorize(lambda x, y, im_height, im_width: Keypoint(x = x, y = y).project(self.target_size, (im_height, im_width)))
-        self._keypoint_x_vectorization = np.vectorize(lambda x: (x.x / self.target_size[0]) if self.normalize_y else x.x)
-        self._keypoint_y_vectorization = np.vectorize(lambda y: (y.y / self.target_size[1]) if self.normalize_y else y.y)
+        self._keypoint_vectorization_resize = np.vectorize(
+            lambda x, y, im_height, im_width: Keypoint(x=x, y=y).project(
+                (im_height, im_width), self.target_size
+            )
+        )
+        self._keypoint_vectorization_resize_back = np.vectorize(
+            lambda x, y, im_height, im_width: Keypoint(x=x, y=y).project(
+                self.target_size, (im_height, im_width)
+            )
+        )
+        self._keypoint_x_vectorization = np.vectorize(
+            lambda x: (x.x / self.target_size[0]) if self.normalize_y else x.x
+        )
+        self._keypoint_y_vectorization = np.vectorize(
+            lambda y: (y.y / self.target_size[1]) if self.normalize_y else y.y
+        )
         # Vectorization function to check if points are inside the image (can get out if augmentation is too aggresive)
-        self._keypoint_is_out_vectorization = np.vectorize(lambda p, x_max, y_max: p.x > x_max or p.y > y_max)
-
-
+        self._keypoint_is_out_vectorization = np.vectorize(
+            lambda p, x_max, y_max: p.x > x_max or p.y > y_max
+        )
 
         # Creating image generator
-        self.image_gen = self.image_datagen.flow_from_dataframe(dataframe = self.df,
-                                                                x_col = x_col,
-                                                                y_col = y_col,
-                                                                color_mode = color_mode,
-                                                                class_mode = "raw",
-                                                                target_size = self.target_size,
-                                                                batch_size = self.batch_size,
-                                                                shuffle = self.training)
+        if self.training:
+            self.image_gen = self.image_datagen.flow_from_dataframe(
+                dataframe=self.df,
+                x_col=x_col,
+                y_col=y_col,
+                color_mode=color_mode,
+                class_mode="raw",
+                target_size=self.target_size,
+                batch_size=self.batch_size,
+                shuffle=self.training,
+            )
+        else:
+            self.image_gen = self.image_datagen.flow_from_dataframe(
+                dataframe=self.df,
+                x_col=x_col,
+                y_col=y_col,
+                target_size=self.target_size,
+                batch_size=self.batch_size,
+            )
         self.on_epoch_end()
-
 
     def __getitem__(self, index):
         def get_item(index):
@@ -170,18 +199,22 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         # Resizes labels to original image size
         labels, image_size, rotations = self._fix_labels_get_image_size(labels)
         image_height, image_width = self._get_image_sizes_for_vectorizations(image_size)
-        kps = self._keypoint_vectorization_resize_back(labels[:, :, 0], labels[:, :, 1], image_height, image_width)
+        kps = self._keypoint_vectorization_resize_back(
+            labels[:, :, 0], labels[:, :, 1], image_height, image_width
+        )
 
         if self.specific_rotations:
             images = self._create_fake_images(image_height, image_width)
-            images, kps = self.rotate_images_specifically(-rotations, images, kps = kps)
+            images, kps = self.rotate_images_specifically(-rotations, images, kps=kps)
 
         points = np.array(kps)
 
         # Creating final x,y label pairs
         points_x = self._keypoint_x_vectorization(points)
         points_y = self._keypoint_y_vectorization(points)
-        labels = np.reshape(np.dstack([points_x, points_y]), (labels.shape[0], labels.shape[1] * 2))
+        labels = np.reshape(
+            np.dstack([points_x, points_y]), (labels.shape[0], labels.shape[1] * 2)
+        )
 
         return labels
 
@@ -195,8 +228,8 @@ class LandMarkDataGenerator(keras.utils.Sequence):
 
         labels = np.reshape(labels, (labels.shape[0], int(labels.shape[1] / 2), 2))
 
-        image_size = labels[:,-1]
-        labels = labels[:,:-1]
+        image_size = labels[:, -1]
+        labels = labels[:, :-1]
 
         return labels, image_size, rotations
 
@@ -214,20 +247,26 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         # Creating all image point objects
         labels, image_size, rotations = self._fix_labels_get_image_size(labels)
         if self.resize_points:
-            image_height, image_width = self._get_image_sizes_for_vectorizations(image_size)
-            kps = self._keypoint_vectorization_resize(labels[:, :, 0], labels[:, :, 1], image_height, image_width)
+            image_height, image_width = self._get_image_sizes_for_vectorizations(
+                image_size
+            )
+            kps = self._keypoint_vectorization_resize(
+                labels[:, :, 0], labels[:, :, 1], image_height, image_width
+            )
         else:
             kps = self._keypoint_vectorization(labels[:, :, 0], labels[:, :, 1])
 
         if self.specific_rotations:
             images, kps = self.rotate_images_specifically(rotations, images, kps)
-        images, kps_aug = self.seq(images = images, keypoints = kps.tolist())
-        
+        images, kps_aug = self.seq(images=images, keypoints=kps.tolist())
+
         points = np.array(kps_aug)
 
         # Validating that after augmentation all points are still in the image
-        images_too_augmentated = self._keypoint_is_out_vectorization(points[:], self.target_size[0], self.target_size[1])
-        images_too_augmentated = np.sum(images_too_augmentated, axis = 1)
+        images_too_augmentated = self._keypoint_is_out_vectorization(
+            points[:], self.target_size[0], self.target_size[1]
+        )
+        images_too_augmentated = np.sum(images_too_augmentated, axis=1)
         images = images[images_too_augmentated == 0]
         points = points[images_too_augmentated == 0]
 
@@ -237,31 +276,32 @@ class LandMarkDataGenerator(keras.utils.Sequence):
         # Creating final x,y label pairs
         points_x = self._keypoint_x_vectorization(points[:])
         points_y = self._keypoint_y_vectorization(points[:])
-        labels = np.reshape(np.dstack([points_x, points_y]), (images.shape[0], labels.shape[1] * 2))
+        labels = np.reshape(
+            np.dstack([points_x, points_y]), (images.shape[0], labels.shape[1] * 2)
+        )
 
         return images, labels
 
-    def rotate_images_specifically(self, rotations, images, kps = None):
+    def rotate_images_specifically(self, rotations, images, kps=None):
         for i, rot in enumerate(rotations):
             # For when fixing predictions
             if type(images) == list:
                 img = images[i]
             else:
-                img = images[i:i+1,:]
+                img = images[i : i + 1, :]
 
             if kps is not None:
                 kps_img = [kps[i].tolist()]
-                img, kps_img = iaa.Affine(rotate = rot)(images = img, keypoints = kps_img)
+                img, kps_img = iaa.Affine(rotate=rot)(images=img, keypoints=kps_img)
                 kps[i] = np.array(kps_img[0])
             else:
-                img = iaa.Affine(rotate = rot)(images = img)
+                img = iaa.Affine(rotate=rot)(images=img)
 
             images[i] = img
 
         if kps is not None:
             return images, kps
         return images
-
 
     def __len__(self):
         # Denotes the number of batches per epoch
@@ -270,20 +310,16 @@ class LandMarkDataGenerator(keras.utils.Sequence):
     def on_epoch_end(self):
         # Runs on epoch ends
         # All the augmentations that will be applied
-        self.seq = iaa.Sequential([
-                    iaa.Multiply(self.multiply, per_channel = self.multiply_per_channel),
-                    iaa.Affine(
-                        scale = self.scale,
-                        translate_percent = self.translate_percent,
-                        rotate = self.rotate,
-                        shear = self.shear
-                        ),
-                    iaa.Rot90(self.rotate_90)
-                    ])
+        self.seq = iaa.Sequential(
+            [
+                iaa.Multiply(self.multiply, per_channel=self.multiply_per_channel),
+                iaa.Affine(
+                    scale=self.scale,
+                    translate_percent=self.translate_percent,
+                    rotate=self.rotate,
+                    shear=self.shear,
+                ),
+                iaa.Rot90(self.rotate_90),
+            ]
+        )
         self.image_gen.on_epoch_end()
-
-
-
-
-
-

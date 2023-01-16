@@ -1,19 +1,20 @@
+import math
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
-import math
 
 
 class MultiGen(keras.utils.Sequence):
     """docstring for MultiGen"""
+
     def __init__(self, cl, num_instances, *args, **kargs):
         super(MultiGen, self).__init__()
         self.num_instances = num_instances
         self.cl_instances = []
-        self.batch_size = kargs['batch_size']
-        self.training = kargs['training']
+        self.batch_size = kargs["batch_size"]
+        self.training = kargs["training"]
         self.cl_batch_size = math.ceil(self.batch_size / num_instances)
-        kargs['batch_size'] = self.cl_batch_size
+        kargs["batch_size"] = self.cl_batch_size
         for i in range(num_instances):
             self.cl_instances.append(cl(*args, **kargs))
 
@@ -32,7 +33,7 @@ class MultiGen(keras.utils.Sequence):
 
         ret_items = []
         for item in items_holder:
-            ret_items.append(np.concatenate(item, axis = 0))
+            ret_items.append(np.concatenate(item, axis=0))
 
         if self.training:
             return ret_items[0], ret_items[1]
@@ -45,5 +46,6 @@ class MultiGen(keras.utils.Sequence):
         for cl_in in self.cl_instances:
             cl_in.on_epoch_end()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

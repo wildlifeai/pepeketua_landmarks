@@ -1,5 +1,6 @@
 import numpy as np
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import pandas as pd
 import keras
@@ -22,7 +23,16 @@ IMAGE_SIZE_HEIGHT_INDEX = 1
 DIR_PATH = r"D:\Archeys_frogs\whareorino_a\Grid A\Individual Frogs"
 
 
-def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radius_real = 10, color = (0, 0, 255), color_real = (0, 255, 0)):
+def show_labels(
+    img,
+    labels,
+    labels_real=None,
+    radius=5,
+    thickness=1,
+    radius_real=10,
+    color=(0, 0, 255),
+    color_real=(0, 255, 0),
+):
     for i in range(0, len(labels), 2):
         point = np.round([labels[i], labels[i + 1]]).astype(int)
         point = tuple(point)
@@ -34,35 +44,40 @@ def show_labels(img, labels, labels_real = None, radius = 5, thickness = 1, radi
         img = cv2.circle(img, point, radius_real, color_real, thickness)
     show_image(img)
 
+
 def show_image(img):
-    cv2.imshow('', img)
+    cv2.imshow("", img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+
 def main():
     df = pd.read_pickle(DB_FILE_PATH)
-    df.image_path = df.image_path.apply(lambda path: 'D:\\' + os.sep.join(os.path.normpath(path).split(os.sep)[5:]))
+    df.image_path = df.image_path.apply(
+        lambda path: "D:\\" + os.sep.join(os.path.normpath(path).split(os.sep)[5:])
+    )
 
-    rotations = np.random.randint(90, 180, size = (len(df), 1))
+    rotations = np.random.randint(90, 180, size=(len(df), 1))
     # df['rotations'] = rotations
 
-    gt = LandMarkDataGenerator(dataframe = df,
-                        x_col = "image_path",
-                        y_col = df.columns.to_list()[1:],
-                        color_mode = "rgb",
-                        target_size = IMAGE_SIZE,
-                        batch_size = 10,
-                        training = True,
-                        resize_points = True,
-                        height_first = False,
-                        specific_rotations = False)
+    gt = LandMarkDataGenerator(
+        dataframe=df,
+        x_col="image_path",
+        y_col=df.columns.to_list()[1:],
+        color_mode="rgb",
+        target_size=IMAGE_SIZE,
+        batch_size=10,
+        training=True,
+        resize_points=True,
+        height_first=False,
+        specific_rotations=False,
+    )
 
     for j in range(2):
         x, y = gt.__getitem__(2)
         for i in range(2):
-            show_labels(x[i], y[i], thickness = 2, radius = 1)
+            show_labels(x[i], y[i], thickness=2, radius=1)
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
